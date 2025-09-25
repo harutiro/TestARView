@@ -400,6 +400,8 @@
 				DEVELOPMENT_TEAM = HK6A3CR45M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "このアプリはARKitを使用して拡張現実機能を提供するためにカメラへのアクセスが必要です。";
+				INFOPLIST_KEY_NSWorldSensingUsageDescription = "このアプリはARKitのワールドトラッキング機能を使用するため、センサーデータへのアクセスが必要です。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -428,6 +430,8 @@
 				DEVELOPMENT_TEAM = HK6A3CR45M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "このアプリはARKitを使用して拡張現実機能を提供するためにカメラへのアクセスが必要です。";
+				INFOPLIST_KEY_NSWorldSensingUsageDescription = "このアプリはARKitのワールドトラッキング機能を使用するため、センサーデータへのアクセスが必要です。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

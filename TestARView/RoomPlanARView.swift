@@ -10,19 +10,11 @@ import RealityKit
 import ARKit
 
 struct RoomPlanARView: View {
-    @State private var selectedCategories: Set<String> = [
-        "Wall", "Floor", "storage", "television", "bathtub", "bed", "chair",
-        "dishwasher", "fireplace", "oven", "refrigerator", "sink", "sofa",
-        "stairs", "stove", "table", "toilet", "washerDryer", "その他"
-    ]
+    @State private var selectedCategories: Set<EntityCategory> = Set(EntityCategory.allCases.filter { $0 != .root })
     @State private var entityHierarchy: [EntityInfo] = []
     @State private var showEntityList = false
 
-    private let allCategories = [
-        "Wall", "Floor", "storage", "television", "bathtub", "bed", "chair",
-        "dishwasher", "fireplace", "oven", "refrigerator", "sink", "sofa",
-        "stairs", "stove", "table", "toilet", "washerDryer", "その他"
-    ]
+    private let allCategories = EntityCategory.allCases.filter { $0 != .root }
 
     var body: some View {
         ZStack {
@@ -39,7 +31,7 @@ struct RoomPlanARView: View {
                     Button(action: { 
                         print("RoomPlanARView: ボタンタップ - entityHierarchy.count: \(entityHierarchy.count)")
                         for entity in entityHierarchy {
-                            print("  - \(entity.name): \(entity.category)")
+                            print("  - \(entity.name): \(entity.category.rawValue)")
                         }
                         showEntityList.toggle() 
                     }) {
@@ -89,68 +81,16 @@ struct RoomPlanARView: View {
 }
 
 struct CategoryToggle: View {
-    let category: String
+    let category: EntityCategory
     let isSelected: Bool
     let action: () -> Void
-
-    var iconName: String {
-        switch category {
-        case "Wall": return "rectangle.split.3x1"
-        case "Floor": return "square.grid.3x3"
-        case "storage": return "cabinet"
-        case "television": return "tv"
-        case "bathtub": return "bathtub"
-        case "bed": return "bed.double"
-        case "chair": return "chair"
-        case "dishwasher": return "dishwasher"
-        case "fireplace": return "flame"
-        case "oven": return "oven"
-        case "refrigerator": return "refrigerator"
-        case "sink": return "sink"
-        case "sofa": return "sofa"
-        case "stairs": return "stairs"
-        case "stove": return "stove"
-        case "table": return "table"
-        case "toilet": return "toilet"
-        case "washerDryer": return "washer"
-        case "Root": return "folder"
-        case "その他": return "cube"
-        default: return "cube"
-        }
-    }
-
-    var displayName: String {
-        switch category {
-        case "Wall": return "壁"
-        case "Floor": return "床"
-        case "storage": return "収納"
-        case "television": return "テレビ"
-        case "bathtub": return "浴槽"
-        case "bed": return "ベッド"
-        case "chair": return "椅子"
-        case "dishwasher": return "食洗機"
-        case "fireplace": return "暖炉"
-        case "oven": return "オーブン"
-        case "refrigerator": return "冷蔵庫"
-        case "sink": return "シンク"
-        case "sofa": return "ソファ"
-        case "stairs": return "階段"
-        case "stove": return "コンロ"
-        case "table": return "テーブル"
-        case "toilet": return "トイレ"
-        case "washerDryer": return "洗濯機"
-        case "Root": return "ルート"
-        case "その他": return "その他"
-        default: return category
-        }
-    }
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
-                Image(systemName: iconName)
+                Image(systemName: category.systemIconName)
                     .font(.title2)
-                Text(displayName)
+                Text(category.displayName)
                     .font(.caption)
             }
             .frame(width: 70, height: 70)
@@ -167,12 +107,12 @@ struct CategoryToggle: View {
 
 struct EntityListView: View {
     let entities: [EntityInfo]
-    @Binding var selectedCategories: Set<String>
+    @Binding var selectedCategories: Set<EntityCategory>
     @Binding var isPresented: Bool
 
-    var categorizedEntities: [(String, [EntityInfo])] {
+    var categorizedEntities: [(EntityCategory, [EntityInfo])] {
         let grouped = Dictionary(grouping: entities) { $0.category }
-        return grouped.sorted { $0.key < $1.key }
+        return grouped.sorted { $0.key.rawValue < $1.key.rawValue }
     }
 
     var body: some View {
@@ -186,7 +126,7 @@ struct EntityListView: View {
                         HStack {
                             Text(entity.name)
                             Spacer()
-                            Text(entity.category)
+                            Text(entity.category.rawValue)
                                 .font(.caption)
                                 .foregroundColor(.blue)
                         }
@@ -208,14 +148,14 @@ struct EntityListView: View {
                             )) {
                                 Label {
                                     HStack {
-                                        Text(category)
+                                        Text(category.rawValue)
                                         Spacer()
                                         Text("\(items.count)個")
                                             .foregroundColor(.secondary)
                                             .font(.caption)
                                     }
                                 } icon: {
-                                    Image(systemName: categoryIcon(for: category))
+                                    Image(systemName: category.systemIconName)
                                 }
                             }
                         }
@@ -229,7 +169,7 @@ struct EntityListView: View {
                             Text(entity.name)
                                 .font(.system(.body, design: .monospaced))
                             Spacer()
-                            Text(entity.category)
+                            Text(entity.category.rawValue)
                                 .font(.caption)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
@@ -242,7 +182,7 @@ struct EntityListView: View {
             .onAppear {
                 print("EntityListView: onAppear - entities.count: \(entities.count)")
                 for entity in entities {
-                    print("  - \(entity.name): \(entity.category)")
+                    print("  - \(entity.name): \(entity.category.rawValue)")
                 }
             }
             .navigationTitle("エンティティ一覧")
@@ -257,31 +197,6 @@ struct EntityListView: View {
         }
         .transition(.move(edge: .bottom))
         .animation(.easeInOut, value: isPresented)
-    }
-
-    func categoryIcon(for category: String) -> String {
-        switch category {
-        case "bathtub": return "bathtub"
-        case "bed": return "bed.double"
-        case "chair": return "chair"
-        case "dishwasher": return "dishwasher"
-        case "fireplace": return "flame"
-        case "oven": return "oven"
-        case "refrigerator": return "refrigerator"
-        case "sink": return "sink"
-        case "sofa": return "sofa"
-        case "stairs": return "stairs"
-        case "storage": return "cabinet"
-        case "stove": return "stove"
-        case "table": return "table"
-        case "television": return "tv"
-        case "toilet": return "toilet"
-        case "washerDryer": return "washer"
-        case "Wall": return "rectangle.split.3x1"
-        case "Floor": return "square.grid.3x3"
-        case "その他": return "cube"
-        default: return "cube"
-        }
     }
 }
 

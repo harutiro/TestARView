@@ -12,7 +12,7 @@ import SceneKit
 import ModelIO
 
 struct ARContainerView: UIViewRepresentable {
-    @Binding var selectedCategories: Set<String>
+    @Binding var selectedCategories: Set<EntityCategory>
     @Binding var entityHierarchy: [EntityInfo]
 
     func makeUIView(context: Context) -> ARView {
@@ -51,7 +51,7 @@ struct ARContainerView: UIViewRepresentable {
         var lastSelectedCategories: Set<String> = []
 
         // SceneKitからRealityKitに変換された個別エンティティを保存
-        var categoryEntities: [String: [Entity]] = [:]
+        var categoryEntities: [EntityCategory: [Entity]] = [:]
 
         // 元のTransform値を保存するディクショナリ
         var originalTransforms: [ObjectIdentifier: Transform] = [:]
@@ -129,7 +129,7 @@ struct ARContainerView: UIViewRepresentable {
 
         // SceneKitノードから個別のRealityKitエンティティを作成
         @MainActor
-        private func createIndividualEntitiesFromSceneKit(url: URL, grpObjects: [String: [String]], referenceEntity: ModelEntity) async -> (AnchorEntity, [String: [Entity]]) {
+        private func createIndividualEntitiesFromSceneKit(url: URL, grpObjects: [String: [String]], referenceEntity: ModelEntity) async -> (AnchorEntity, [EntityCategory: [Entity]]) {
             do {
                 print("createIndividualEntitiesFromSceneKit: SceneKit解析開始")
                 let scene = try SCNScene(url: url, options: nil)
@@ -141,7 +141,7 @@ struct ARContainerView: UIViewRepresentable {
                 let referenceTransform = referenceEntity.transform
                 print("createIndividualEntitiesFromSceneKit: リファレンストランスフォーム - position: \(referenceTransform.translation), scale: \(referenceTransform.scale)")
 
-                var categoryMap: [String: [Entity]] = [:]
+                var categoryMap: [EntityCategory: [Entity]] = [:]
 
                 // SceneKitのノードからRealityKitエンティティを作成
                 await processSceneKitNodeStatic(scene.rootNode,
@@ -163,7 +163,7 @@ struct ARContainerView: UIViewRepresentable {
 
 
         // カテゴリマップからEntityInfoを作成
-        private func createEntityInfoFromCategoryMap(categoryMap: [String: [Entity]]) -> [EntityInfo] {
+        private func createEntityInfoFromCategoryMap(categoryMap: [EntityCategory: [Entity]]) -> [EntityInfo] {
             var entities: [EntityInfo] = []
 
             for (category, categoryEntities) in categoryMap {
@@ -211,7 +211,7 @@ struct ARContainerView: UIViewRepresentable {
             // ルートエンティティを追加
             let rootInfo = EntityInfo(
                 name: "room",
-                category: "Root",
+                category: .root,
                 level: 0,
                 entity: roomEntity
             )
@@ -255,8 +255,8 @@ struct ARContainerView: UIViewRepresentable {
                 )
                 entities.append(grpInfo)
                 
-                let icon = getIconForCategory(grpCategory)
-                print("├─ \(icon) \(grpName) → \(grpCategory)")
+                let icon = grpCategory.icon
+                print("├─ \(icon) \(grpName) → \(grpCategory.rawValue)")
 
                 // その子要素を追加（階層に基づいたカテゴリを決定）
                 for (index, childName) in children.enumerated() {
@@ -272,8 +272,8 @@ struct ARContainerView: UIViewRepresentable {
                     )
                     entities.append(childInfo)
                     
-                    let childIcon = getIconForCategory(childCategory)
-                    print("│  \(childPrefix) \(childIcon) \(childName) → \(childCategory)")
+                    let childIcon = childCategory.icon
+                    print("│  \(childPrefix) \(childIcon) \(childName) → \(childCategory.rawValue)")
                 }
             }
 
@@ -291,233 +291,209 @@ struct ARContainerView: UIViewRepresentable {
         }
 
         // _grpオブジェクトのカテゴリ分け
-        private func categorizeGrpObject(name: String) -> String {
+        private func categorizeGrpObject(name: String) -> EntityCategory {
             let lowercaseName = name.lowercased()
 
             print("categorizeGrpObject: \(lowercaseName)")
 
             if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
-                return "bathtub"
+                return .bathtub
             } else if lowercaseName.contains("bed") {
-                return "bed"
+                return .bed
             } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
-                return "chair"
+                return .chair
             } else if lowercaseName.contains("dishwasher") {
-                return "dishwasher"
+                return .dishwasher
             } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
-                return "fireplace"
+                return .fireplace
             } else if lowercaseName.contains("oven") {
-                return "oven"
+                return .oven
             } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
-                return "refrigerator"
+                return .refrigerator
             } else if lowercaseName.contains("sink") {
-                return "sink"
+                return .sink
             } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
-                return "sofa"
+                return .sofa
             } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
-                return "stairs"
+                return .stairs
             } else if lowercaseName.contains("storage") || lowercaseName.contains("cabinet") || lowercaseName.contains("shelf") || lowercaseName.contains("closet") {
-                return "storage"
+                return .storage
             } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
-                return "stove"
+                return .stove
             } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
-                return "table"
+                return .table
             } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
-                return "television"
+                return .television
             } else if lowercaseName.contains("toilet") {
-                return "toilet"
+                return .toilet
             } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
-                return "washerDryer"
+                return .washerDryer
             } else if lowercaseName.contains("floor") || lowercaseName.contains("wall") || lowercaseName.contains("ceiling") {
-                return "その他"
+                return .other
             }
 
             // デフォルトは「その他」
-            return "その他"
+            return .other
         }
 
-        private func categorizeGrpObjectByHierarchy(name: String) -> String {
+        private func categorizeGrpObjectByHierarchy(name: String) -> EntityCategory {
             let lowercaseName = name.lowercased()
             
             // 階層構造に基づいた分類
             if lowercaseName.contains("arch") {
-                return "Wall"  // Arch_grpの配下は全てWall
+                return .wall  // Arch_grpの配下は全てWall
             } else if lowercaseName.contains("floor") {
-                return "Floor"  // Floor_grpの配下は全てFloor
+                return .floor  // Floor_grpの配下は全てFloor
             } else if lowercaseName.contains("object") {
-                return "その他"  // Object_grpは放置（その他扱い）
+                return .other  // Object_grpは放置（その他扱い）
             }
             
             // Object_grp配下の具体的なオブジェクト分類
             if lowercaseName.contains("storage") {
-                return "storage"
+                return .storage
             } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
-                return "television"
+                return .television
             } else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
-                return "bathtub"
+                return .bathtub
             } else if lowercaseName.contains("bed") {
-                return "bed"
+                return .bed
             } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
-                return "chair"
+                return .chair
             } else if lowercaseName.contains("dishwasher") {
-                return "dishwasher"
+                return .dishwasher
             } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
-                return "fireplace"
+                return .fireplace
             } else if lowercaseName.contains("oven") {
-                return "oven"
+                return .oven
             } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
-                return "refrigerator"
+                return .refrigerator
             } else if lowercaseName.contains("sink") {
-                return "sink"
+                return .sink
             } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
-                return "sofa"
+                return .sofa
             } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
-                return "stairs"
+                return .stairs
             } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
-                return "stove"
+                return .stove
             } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
-                return "table"
+                return .table
             } else if lowercaseName.contains("toilet") {
-                return "toilet"
+                return .toilet
             } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
-                return "washerDryer"
+                return .washerDryer
             }
 
             // デフォルトは「その他」
-            return "その他"
+            return .other
         }
 
-        private func categorizeChildObjectByHierarchy(childName: String, parentName: String) -> String {
+        private func categorizeChildObjectByHierarchy(childName: String, parentName: String) -> EntityCategory {
             let lowercaseParentName = parentName.lowercased()
             
             // 階層構造に基づいた子要素の分類
             // Arch_grp配下（Wall_0_grp, Wall_1_grpなど）の子要素は全てWall
             if lowercaseParentName.contains("arch") || lowercaseParentName.contains("wall") {
-                return "Wall"
+                return .wall
             }
             
             // Floor_grp配下の子要素は全てFloor
             if lowercaseParentName.contains("floor") {
-                return "Floor"
+                return .floor
             }
             
             // Storage_grp配下の子要素は全てstorage
             if lowercaseParentName.contains("storage") {
-                return "storage"
+                return .storage
             }
             
             // Television_grp配下の子要素は全てtelevision
             if lowercaseParentName.contains("television") || lowercaseParentName.contains("tv") {
-                return "television"
+                return .television
             }
             
             // その他のObject_grp配下のオブジェクト
             if lowercaseParentName.contains("bathtub") || lowercaseParentName.contains("bath") {
-                return "bathtub"
+                return .bathtub
             } else if lowercaseParentName.contains("bed") {
-                return "bed"
+                return .bed
             } else if lowercaseParentName.contains("chair") || lowercaseParentName.contains("seat") {
-                return "chair"
+                return .chair
             } else if lowercaseParentName.contains("dishwasher") {
-                return "dishwasher"
+                return .dishwasher
             } else if lowercaseParentName.contains("fireplace") || lowercaseParentName.contains("fire") {
-                return "fireplace"
+                return .fireplace
             } else if lowercaseParentName.contains("oven") {
-                return "oven"
+                return .oven
             } else if lowercaseParentName.contains("refrigerator") || lowercaseParentName.contains("fridge") || lowercaseParentName.contains("refrig") {
-                return "refrigerator"
+                return .refrigerator
             } else if lowercaseParentName.contains("sink") {
-                return "sink"
+                return .sink
             } else if lowercaseParentName.contains("sofa") || lowercaseParentName.contains("couch") {
-                return "sofa"
+                return .sofa
             } else if lowercaseParentName.contains("stairs") || lowercaseParentName.contains("stair") || lowercaseParentName.contains("step") {
-                return "stairs"
+                return .stairs
             } else if lowercaseParentName.contains("stove") || lowercaseParentName.contains("cooktop") {
-                return "stove"
+                return .stove
             } else if lowercaseParentName.contains("table") || lowercaseParentName.contains("desk") {
-                return "table"
+                return .table
             } else if lowercaseParentName.contains("toilet") {
-                return "toilet"
+                return .toilet
             } else if lowercaseParentName.contains("washer") || lowercaseParentName.contains("dryer") || lowercaseParentName.contains("laundry") {
-                return "washerDryer"
+                return .washerDryer
             }
             
             // デフォルトは「その他」
-            return "その他"
+            return .other
         }
 
-        private func categorizeDirectChild(name: String) -> String {
+        private func categorizeDirectChild(name: String) -> EntityCategory {
             let lowercaseName = name.lowercased()
             
             // 子要素の名前から直接判定
             if lowercaseName.contains("television") || lowercaseName == "television0" {
-                return "television"
+                return .television
             } else if lowercaseName.contains("storage") || lowercaseName == "storage0" || lowercaseName == "storage1" {
-                return "storage"
+                return .storage
             } else if lowercaseName.contains("wall") || lowercaseName == "wall0" || lowercaseName == "wall1" || lowercaseName == "wall2" {
-                return "Wall"
+                return .wall
             } else if lowercaseName.contains("floor") || lowercaseName == "floor0" {
-                return "Floor"
+                return .floor
             } else if lowercaseName.contains("door") || lowercaseName == "door0" {
-                return "Wall"  // ドアは壁カテゴリに含める
+                return .wall  // ドアは壁カテゴリに含める
             } else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
-                return "bathtub"
+                return .bathtub
             } else if lowercaseName.contains("bed") {
-                return "bed"
+                return .bed
             } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
-                return "chair"
+                return .chair
             } else if lowercaseName.contains("dishwasher") {
-                return "dishwasher"
+                return .dishwasher
             } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
-                return "fireplace"
+                return .fireplace
             } else if lowercaseName.contains("oven") {
-                return "oven"
+                return .oven
             } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
-                return "refrigerator"
+                return .refrigerator
             } else if lowercaseName.contains("sink") {
-                return "sink"
+                return .sink
             } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
-                return "sofa"
+                return .sofa
             } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
-                return "stairs"
+                return .stairs
             } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
-                return "stove"
+                return .stove
             } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
-                return "table"
+                return .table
             } else if lowercaseName.contains("toilet") {
-                return "toilet"
+                return .toilet
             } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
-                return "washerDryer"
+                return .washerDryer
             }
             
             // デフォルトは「その他」
-            return "その他"
+            return .other
         }
 
-        private func getIconForCategory(_ category: String) -> String {
-            switch category {
-            case "Wall": return "🏠"
-            case "Floor": return "🟫"
-            case "storage": return "🏪"
-            case "television": return "📺"
-            case "bathtub": return "🛁"
-            case "bed": return "🛏️"
-            case "chair": return "🪑"
-            case "dishwasher": return "🍽️"
-            case "fireplace": return "🔥"
-            case "oven": return "🔥"
-            case "refrigerator": return "❄️"
-            case "sink": return "🚰"
-            case "sofa": return "🛋️"
-            case "stairs": return "🪜"
-            case "stove": return "🔥"
-            case "table": return "🪑"
-            case "toilet": return "🚽"
-            case "washerDryer": return "🧽"
-            case "Root": return "📁"
-            default: return "📦"
-            }
-        }
         
         private func inferParentGroup(for childName: String) -> String {
             let lowercaseName = childName.lowercased()
@@ -539,10 +515,10 @@ struct ARContainerView: UIViewRepresentable {
         // 階層ノード構造
         struct HierarchyNode {
             let name: String
-            let category: String
+            let category: EntityCategory
             let level: Int
             var children: [HierarchyNode] = []
-            
+
             var isGroup: Bool {
                 return name.lowercased().hasSuffix("_grp")
             }
@@ -666,8 +642,8 @@ struct ARContainerView: UIViewRepresentable {
                 let nodePrefix = isLastNode ? "└─" : "├─"
                 let childPrefix = prefix + (isLastNode ? "   " : "│  ")
                 
-                let icon = getIconForCategory(node.category)
-                print("\(prefix)\(nodePrefix) \(icon) \(node.name) → \(node.category)")
+                let icon = node.category.icon
+                print("\(prefix)\(nodePrefix) \(icon) \(node.name) → \(node.category.rawValue)")
                 
                 // エンティティに追加
                 let entityInfo = EntityInfo(
@@ -688,7 +664,7 @@ struct ARContainerView: UIViewRepresentable {
         // この関数は削除 - displayHierarchyが真の再帰関数として統合処理
 
         // 子オブジェクトのカテゴリ分け
-        private func categorizeChildObject(name: String, parentCategory: String) -> String {
+        private func categorizeChildObject(name: String, parentCategory: EntityCategory) -> EntityCategory {
             // 全ての_grpオブジェクトの子要素は親のカテゴリを継承
             return parentCategory
         }
@@ -703,7 +679,7 @@ struct ARContainerView: UIViewRepresentable {
             }
         }
 
-        func updateVisibility(selectedCategories: Set<String>) {
+        func updateVisibility(selectedCategories: Set<EntityCategory>) {
             guard let rootEntity = self.rootEntity else {
                 print("updateVisibility: rootEntity is nil")
                 return
@@ -718,14 +694,14 @@ struct ARContainerView: UIViewRepresentable {
             print("========== updateVisibility 完了 ==========\n")
         }
 
-        private func updateVisibilityByCategory(rootEntity: Entity, selectedCategories: Set<String>) {
+        private func updateVisibilityByCategory(rootEntity: Entity, selectedCategories: Set<EntityCategory>) {
             print("=== カテゴリ別表示制御開始 ===")
             print("選択されたカテゴリ: \(selectedCategories)")
 
             // 各カテゴリのエンティティを制御
             for (category, entities) in categoryEntities {
                 let shouldShow = selectedCategories.contains(category)
-                print("カテゴリ '\(category)': \(shouldShow ? "表示" : "非表示") (\(entities.count)個のエンティティ)")
+                print("カテゴリ '\(category.rawValue)': \(shouldShow ? "表示" : "非表示") (\(entities.count)個のエンティティ)")
 
                 for entity in entities {
                     setEntityVisibilitySafe(entity, isVisible: shouldShow)
@@ -736,12 +712,12 @@ struct ARContainerView: UIViewRepresentable {
         }
 
         // 実際のエンティティ階層を走査してカテゴリマップを作成
-        private func createEntityCategoryMap(entity: Entity, map: inout [String: [Entity]]) {
+        private func createEntityCategoryMap(entity: Entity, map: inout [EntityCategory: [Entity]]) {
             createEntityCategoryMapWithPath(entity: entity, map: &map, path: [])
         }
 
         // パス情報を保持しながらエンティティをマッピング
-        private func createEntityCategoryMapWithPath(entity: Entity, map: inout [String: [Entity]], path: [String]) {
+        private func createEntityCategoryMapWithPath(entity: Entity, map: inout [EntityCategory: [Entity]], path: [String]) {
             let entityName = entity.name.isEmpty ? "unnamed" : entity.name
             let currentPath = path + [entityName]
 
@@ -754,7 +730,7 @@ struct ARContainerView: UIViewRepresentable {
                     map[category] = []
                 }
                 map[category]?.append(entity)
-                print("  マッピング: \(entityName) -> \(category) (path: \(currentPath.joined(separator: "/")))")
+                print("  マッピング: \(entityName) -> \(category.rawValue) (path: \(currentPath.joined(separator: "/")))")
             }
 
             // 子エンティティも再帰的に処理（重要：確実に全子エンティティを走査）
@@ -766,19 +742,19 @@ struct ARContainerView: UIViewRepresentable {
         }
 
         // パス情報からカテゴリを判定（より高精度）
-        private func determineCategoryFromPath(_ path: [String]) -> String {
+        private func determineCategoryFromPath(_ path: [String]) -> EntityCategory {
             let pathString = path.joined(separator: "/").lowercased()
             let currentName = path.last?.lowercased() ?? ""
 
             // パス全体から階層構造を解析
             if pathString.contains("arch") || pathString.contains("wall") || pathString.contains("door") {
-                return "Wall"
+                return .wall
             } else if pathString.contains("floor") {
-                return "Floor"
+                return .floor
             } else if pathString.contains("storage") {
-                return "storage"
+                return .storage
             } else if pathString.contains("television") || pathString.contains("tv") {
-                return "television"
+                return .television
             }
 
             // 現在の名前から直接判定
@@ -786,49 +762,49 @@ struct ARContainerView: UIViewRepresentable {
         }
 
         // エンティティ名からカテゴリを判定（より堅牢な実装）
-        private func determineEntityCategory(name: String) -> String {
+        private func determineEntityCategory(name: String) -> EntityCategory {
             let lowercaseName = name.lowercased()
 
             // まず階層ベースの判定（確実性の高いもの）
             if lowercaseName.contains("wall") || lowercaseName.contains("door") || lowercaseName.contains("arch") {
-                return "Wall"
+                return .wall
             } else if lowercaseName.contains("floor") {
-                return "Floor"
+                return .floor
             } else if lowercaseName.contains("storage") {
-                return "storage"
+                return .storage
             } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
-                return "television"
+                return .television
             }
 
             // 標準的な家具・設備の判定
             else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
-                return "bathtub"
+                return .bathtub
             } else if lowercaseName.contains("bed") {
-                return "bed"
+                return .bed
             } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
-                return "chair"
+                return .chair
             } else if lowercaseName.contains("dishwasher") {
-                return "dishwasher"
+                return .dishwasher
             } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
-                return "fireplace"
+                return .fireplace
             } else if lowercaseName.contains("oven") {
-                return "oven"
+                return .oven
             } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
-                return "refrigerator"
+                return .refrigerator
             } else if lowercaseName.contains("sink") {
-                return "sink"
+                return .sink
             } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
-                return "sofa"
+                return .sofa
             } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
-                return "stairs"
+                return .stairs
             } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
-                return "stove"
+                return .stove
             } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
-                return "table"
+                return .table
             } else if lowercaseName.contains("toilet") {
-                return "toilet"
+                return .toilet
             } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
-                return "washerDryer"
+                return .washerDryer
             }
 
             // 特殊なケース: 複雑な名前は親エンティティから推測
@@ -836,16 +812,16 @@ struct ARContainerView: UIViewRepresentable {
         }
 
         // 親エンティティのコンテキストからカテゴリを推測
-        private func inferCategoryFromParentContext(entityName: String) -> String {
+        private func inferCategoryFromParentContext(entityName: String) -> EntityCategory {
             // allEntitiesからこのエンティティに関連する情報を探索
             for entityInfo in allEntities {
                 if entityName.contains(entityInfo.name) || entityInfo.name.contains(entityName) {
-                    if entityInfo.category != "その他" {
+                    if entityInfo.category != .other {
                         return entityInfo.category
                     }
                 }
             }
-            return "その他"
+            return .other
         }
 
         // より安全なエンティティ可視性制御（Transform scaling を避ける）
@@ -937,7 +913,7 @@ private func collectChildrenStatic(_ node: SCNNode, children: inout [String]) {
 @MainActor
 private func processSceneKitNodeStatic(_ node: SCNNode,
                                      anchor: AnchorEntity,
-                                     categoryMap: inout [String: [Entity]],
+                                     categoryMap: inout [EntityCategory: [Entity]],
                                      grpObjects: [String: [String]],
                                      level: Int,
                                      referenceTransform: Transform) async {
@@ -1137,12 +1113,12 @@ private func createFallbackEntity(nodeName: String, transform: SCNMatrix4, refer
 }
 
 // 静的関数：SceneKitノードからカテゴリを判定
-private func determineCategoryFromSceneKitNodeStatic(_ node: SCNNode, grpObjects: [String: [String]]) -> String {
+private func determineCategoryFromSceneKitNodeStatic(_ node: SCNNode, grpObjects: [String: [String]]) -> EntityCategory {
     let nodeName = node.name ?? "unnamed"
 
     // 直接的な名前判定
     let directCategory = categorizeDirectChildStatic(name: nodeName)
-    if directCategory != "その他" {
+    if directCategory != .other {
         return directCategory
     }
 
@@ -1151,113 +1127,113 @@ private func determineCategoryFromSceneKitNodeStatic(_ node: SCNNode, grpObjects
     while let parentNode = currentNode?.parent {
         if let parentName = parentNode.name {
             let parentCategory = categorizeGrpObjectByHierarchyStatic(name: parentName)
-            if parentCategory != "その他" {
+            if parentCategory != .other {
                 return parentCategory
             }
         }
         currentNode = parentNode
     }
 
-    return "その他"
+    return .other
 }
 
 // 静的関数：分類ロジック
-private func categorizeDirectChildStatic(name: String) -> String {
+private func categorizeDirectChildStatic(name: String) -> EntityCategory {
     let lowercaseName = name.lowercased()
 
     // 子要素の名前から直接判定
     if lowercaseName.contains("television") || lowercaseName == "television0" {
-        return "television"
+        return .television
     } else if lowercaseName.contains("storage") || lowercaseName == "storage0" || lowercaseName == "storage1" {
-        return "storage"
+        return .storage
     } else if lowercaseName.contains("wall") || lowercaseName == "wall0" || lowercaseName == "wall1" || lowercaseName == "wall2" {
-        return "Wall"
+        return .wall
     } else if lowercaseName.contains("floor") || lowercaseName == "floor0" {
-        return "Floor"
+        return .floor
     } else if lowercaseName.contains("door") || lowercaseName == "door0" {
-        return "Wall"  // ドアは壁カテゴリに含める
+        return .wall  // ドアは壁カテゴリに含める
     } else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
-        return "bathtub"
+        return .bathtub
     } else if lowercaseName.contains("bed") {
-        return "bed"
+        return .bed
     } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
-        return "chair"
+        return .chair
     } else if lowercaseName.contains("dishwasher") {
-        return "dishwasher"
+        return .dishwasher
     } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
-        return "fireplace"
+        return .fireplace
     } else if lowercaseName.contains("oven") {
-        return "oven"
+        return .oven
     } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
-        return "refrigerator"
+        return .refrigerator
     } else if lowercaseName.contains("sink") {
-        return "sink"
+        return .sink
     } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
-        return "sofa"
+        return .sofa
     } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
-        return "stairs"
+        return .stairs
     } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
-        return "stove"
+        return .stove
     } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
-        return "table"
+        return .table
     } else if lowercaseName.contains("toilet") {
-        return "toilet"
+        return .toilet
     } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
-        return "washerDryer"
+        return .washerDryer
     }
 
     // デフォルトは「その他」
-    return "その他"
+    return .other
 }
 
 // 静的関数：階層に基づく分類
-private func categorizeGrpObjectByHierarchyStatic(name: String) -> String {
+private func categorizeGrpObjectByHierarchyStatic(name: String) -> EntityCategory {
     let lowercaseName = name.lowercased()
 
     // 階層構造に基づいた分類
     if lowercaseName.contains("arch") {
-        return "Wall"  // Arch_grpの配下は全てWall
+        return .wall  // Arch_grpの配下は全てWall
     } else if lowercaseName.contains("floor") {
-        return "Floor"  // Floor_grpの配下は全てFloor
+        return .floor  // Floor_grpの配下は全てFloor
     } else if lowercaseName.contains("object") {
-        return "その他"  // Object_grpは放置（その他扱い）
+        return .other  // Object_grpは放置（その他扱い）
     }
 
     // Object_grp配下の具体的なオブジェクト分類
     if lowercaseName.contains("storage") {
-        return "storage"
+        return .storage
     } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
-        return "television"
+        return .television
     } else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
-        return "bathtub"
+        return .bathtub
     } else if lowercaseName.contains("bed") {
-        return "bed"
+        return .bed
     } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
-        return "chair"
+        return .chair
     } else if lowercaseName.contains("dishwasher") {
-        return "dishwasher"
+        return .dishwasher
     } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
-        return "fireplace"
+        return .fireplace
     } else if lowercaseName.contains("oven") {
-        return "oven"
+        return .oven
     } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
-        return "refrigerator"
+        return .refrigerator
     } else if lowercaseName.contains("sink") {
-        return "sink"
+        return .sink
     } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
-        return "sofa"
+        return .sofa
     } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
-        return "stairs"
+        return .stairs
     } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
-        return "stove"
+        return .stove
     } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
-        return "table"
+        return .table
     } else if lowercaseName.contains("toilet") {
-        return "toilet"
+        return .toilet
     } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
-        return "washerDryer"
+        return .washerDryer
     }
 
     // デフォルトは「その他」
-    return "その他"
+    return .other
 }

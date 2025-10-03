@@ -29,9 +29,30 @@
 		5C5B8FB72E85E7A400BCFD2E /* TestARViewUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TestARViewUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		5CAF6A902E8F84CB00B5598B /* Exceptions for "TestARView" folder in "TestARViewTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				room.usdz,
+			);
+			target = 5C5B8FAC2E85E7A300BCFD2E /* TestARViewTests */;
+		};
+		5CAF6A912E8F84CB00B5598B /* Exceptions for "TestARView" folder in "TestARViewUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				room.usdz,
+			);
+			target = 5C5B8FB62E85E7A400BCFD2E /* TestARViewUITests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5C5B8FA02E85E7A000BCFD2E /* TestARView */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5CAF6A902E8F84CB00B5598B /* Exceptions for "TestARView" folder in "TestARViewTests" target */,
+				5CAF6A912E8F84CB00B5598B /* Exceptions for "TestARView" folder in "TestARViewUITests" target */,
+			);
 			path = TestARView;
 			sourceTree = "<group>";
 		};

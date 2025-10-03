@@ -1145,6 +1145,14 @@ private func determineCategoryFromSceneKitNodeStatic(_ node: SCNNode, grpObjects
         }
     }
 
+    // Table0/Table1が親階層にあればtableカテゴリ
+    for parentName in allParentNames {
+        let lowercaseName = parentName.lowercased()
+        if lowercaseName == "table0" || lowercaseName == "table1" || lowercaseName.contains("table_grp") {
+            return .table
+        }
+    }
+
     // 通常の親ノード判定（最も近い親から順に）
     for parentName in allParentNames {
         let parentCategory = categorizeGrpObjectByHierarchyStatic(name: parentName)

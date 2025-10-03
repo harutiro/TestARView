@@ -9,6 +9,7 @@ import SwiftUI
 import RealityKit
 import ARKit
 import SceneKit
+import ModelIO
 
 struct ARContainerView: UIViewRepresentable {
     @Binding var selectedCategories: Set<String>
@@ -33,7 +34,8 @@ struct ARContainerView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: ARView, context: Context) {
-        // 必要に応じて更新処理
+        // selectedCategoriesが変更された場合、表示/非表示を更新
+        context.coordinator.updateVisibility(selectedCategories: selectedCategories)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -46,9 +48,16 @@ struct ARContainerView: UIViewRepresentable {
         var arView: ARView?
         var rootEntity: AnchorEntity?
         var allEntities: [EntityInfo] = []
+        var lastSelectedCategories: Set<String> = []
 
-        // エンティティの強参照を保持
-        var entityReferences: [Entity] = []
+        // SceneKitからRealityKitに変換された個別エンティティを保存
+        var categoryEntities: [String: [Entity]] = [:]
+
+        // 元のTransform値を保存するディクショナリ
+        var originalTransforms: [ObjectIdentifier: Transform] = [:]
+
+        // 可視性状態を管理
+        var entityVisibilityState: [ObjectIdentifier: Bool] = [:]
 
         init(_ parent: ARContainerView) {
             self.parent = parent
@@ -69,6 +78,13 @@ struct ARContainerView: UIViewRepresentable {
                     return
                 }
 
+                print("loadModel: 元のUSDZモデルを読み込み開始")
+
+                // 元のUSDZモデルを読み込んでリファレンスとして使用（表示はしない）
+                let originalModelEntity = try await ModelEntity(contentsOf: modelURL)
+
+                print("loadModel: 元のモデル読み込み完了（リファレンス用）")
+
                 print("loadModel: SceneKitでroom.usdz解析開始")
 
                 // SceneKitでUSDZファイルの階層構造を解析
@@ -82,37 +98,87 @@ struct ARContainerView: UIViewRepresentable {
                     }
                 }
 
-                print("loadModel: RealityKitでroom.usdz読み込み開始")
-                let roomEntity = try await ModelEntity(contentsOf: modelURL)
+                print("loadModel: SceneKitから個別エンティティを作成中...")
 
-                // アンカーを作成してシーンに追加
-                let anchor = AnchorEntity(world: [0, 0, -1])
-                anchor.addChild(roomEntity)
-                arView.scene.addAnchor(anchor)
+                // SceneKitの個別ノードをRealityKitエンティティに変換
+                let (individualAnchor, categoryMap) = await createIndividualEntitiesFromSceneKit(url: modelURL, grpObjects: grpObjects, referenceEntity: originalModelEntity)
 
-                self.rootEntity = anchor
-                self.entityReferences = [roomEntity]
+                // 個別エンティティのアンカーをシーンに追加（元の位置に表示）
+                arView.scene.addAnchor(individualAnchor)
 
-                print("loadModel: room.usdz読み込み完了")
+                self.rootEntity = individualAnchor
+                self.categoryEntities = categoryMap
 
-                // _grpオブジェクトからEntityInfoを作成
-                let entities = await createEntitiesFromGrpObjects(grpObjects: grpObjects, roomEntity: roomEntity)
-                self.allEntities = entities
-
-                print("loadModel: エンティティ作成完了 - 数: \(entities.count)")
-                for (index, entity) in entities.enumerated() {
-                    print("  [\(index)] \(entity.name): \(entity.category) (level: \(entity.level))")
+                print("loadModel: カテゴリ別エンティティ作成完了")
+                for (category, entities) in categoryMap {
+                    print("  - \(category): \(entities.count)個のエンティティ")
                 }
+
+                // EntityInfoを作成
+                let entities = createEntityInfoFromCategoryMap(categoryMap: categoryMap)
+                self.allEntities = entities
 
                 // UIを更新
                 self.parent.entityHierarchy = entities
-                print("loadModel: UI更新完了 - 数: \(self.parent.entityHierarchy.count)")
-
                 print("loadModel: 全処理完了")
 
             } catch {
                 print("loadModel: エラー - \(error.localizedDescription)")
             }
+        }
+
+        // SceneKitノードから個別のRealityKitエンティティを作成
+        @MainActor
+        private func createIndividualEntitiesFromSceneKit(url: URL, grpObjects: [String: [String]], referenceEntity: ModelEntity) async -> (AnchorEntity, [String: [Entity]]) {
+            do {
+                print("createIndividualEntitiesFromSceneKit: SceneKit解析開始")
+                let scene = try SCNScene(url: url, options: nil)
+
+                // アンカーエンティティを作成（元のモデルと同じ位置・スケール）
+                let anchor = AnchorEntity(world: [0, 0, -1])
+
+                // 元のモデルのトランスフォームを取得
+                let referenceTransform = referenceEntity.transform
+                print("createIndividualEntitiesFromSceneKit: リファレンストランスフォーム - position: \(referenceTransform.translation), scale: \(referenceTransform.scale)")
+
+                var categoryMap: [String: [Entity]] = [:]
+
+                // SceneKitのノードからRealityKitエンティティを作成
+                await processSceneKitNodeStatic(scene.rootNode,
+                                         anchor: anchor,
+                                         categoryMap: &categoryMap,
+                                         grpObjects: grpObjects,
+                                         level: 0,
+                                         referenceTransform: referenceTransform)
+
+                print("createIndividualEntitiesFromSceneKit: 完了")
+                return (anchor, categoryMap)
+
+            } catch {
+                print("createIndividualEntitiesFromSceneKit: エラー - \(error.localizedDescription)")
+                let anchor = AnchorEntity(world: [0, 0, -1])
+                return (anchor, [:])
+            }
+        }
+
+
+        // カテゴリマップからEntityInfoを作成
+        private func createEntityInfoFromCategoryMap(categoryMap: [String: [Entity]]) -> [EntityInfo] {
+            var entities: [EntityInfo] = []
+
+            for (category, categoryEntities) in categoryMap {
+                for (index, entity) in categoryEntities.enumerated() {
+                    let info = EntityInfo(
+                        name: "\(entity.name)_\(index)",
+                        category: category,
+                        level: 1,
+                        entity: entity
+                    )
+                    entities.append(info)
+                }
+            }
+
+            return entities
         }
 
         // SceneKitで_grpオブジェクトとその子要素のみを抽出
@@ -150,7 +216,6 @@ struct ARContainerView: UIViewRepresentable {
                 entity: roomEntity
             )
             var entities = [rootInfo]
-            self.entityReferences.append(roomEntity)
 
             print("📁 room (Root)")
             
@@ -628,8 +693,209 @@ struct ARContainerView: UIViewRepresentable {
             return parentCategory
         }
 
+        // 全エンティティの元のTransform値を保存
+        private func saveOriginalTransforms(entity: Entity) {
+            let identifier = ObjectIdentifier(entity)
+            originalTransforms[identifier] = entity.transform
+            
+            for child in entity.children {
+                saveOriginalTransforms(entity: child)
+            }
+        }
+
         func updateVisibility(selectedCategories: Set<String>) {
-            // カテゴリに基づく表示/非表示の制御
+            guard let rootEntity = self.rootEntity else {
+                print("updateVisibility: rootEntity is nil")
+                return
+            }
+
+            print("\n========== updateVisibility 開始 ==========")
+            print("updateVisibility: 選択されたカテゴリ: \(selectedCategories)")
+
+            // 全てのエンティティの実際の表示/非表示を制御
+            updateVisibilityByCategory(rootEntity: rootEntity, selectedCategories: selectedCategories)
+
+            print("========== updateVisibility 完了 ==========\n")
+        }
+
+        private func updateVisibilityByCategory(rootEntity: Entity, selectedCategories: Set<String>) {
+            print("=== カテゴリ別表示制御開始 ===")
+            print("選択されたカテゴリ: \(selectedCategories)")
+
+            // 各カテゴリのエンティティを制御
+            for (category, entities) in categoryEntities {
+                let shouldShow = selectedCategories.contains(category)
+                print("カテゴリ '\(category)': \(shouldShow ? "表示" : "非表示") (\(entities.count)個のエンティティ)")
+
+                for entity in entities {
+                    setEntityVisibilitySafe(entity, isVisible: shouldShow)
+                }
+            }
+
+            print("=== カテゴリ別表示制御完了 ===")
+        }
+
+        // 実際のエンティティ階層を走査してカテゴリマップを作成
+        private func createEntityCategoryMap(entity: Entity, map: inout [String: [Entity]]) {
+            createEntityCategoryMapWithPath(entity: entity, map: &map, path: [])
+        }
+
+        // パス情報を保持しながらエンティティをマッピング
+        private func createEntityCategoryMapWithPath(entity: Entity, map: inout [String: [Entity]], path: [String]) {
+            let entityName = entity.name.isEmpty ? "unnamed" : entity.name
+            let currentPath = path + [entityName]
+
+            // 階層パスからカテゴリを判定
+            let category = determineCategoryFromPath(currentPath)
+
+            // エンティティがModelComponentを持つ場合のみマップに追加（実際に描画されるもの）
+            if entity.components.has(ModelComponent.self) {
+                if map[category] == nil {
+                    map[category] = []
+                }
+                map[category]?.append(entity)
+                print("  マッピング: \(entityName) -> \(category) (path: \(currentPath.joined(separator: "/")))")
+            }
+
+            // 子エンティティも再帰的に処理（重要：確実に全子エンティティを走査）
+            print("  エンティティ \(entityName) の子要素: \(entity.children.count)個")
+            for (index, child) in entity.children.enumerated() {
+                print("    [子\(index)] \(child.name.isEmpty ? "unnamed" : child.name)")
+                createEntityCategoryMapWithPath(entity: child, map: &map, path: currentPath)
+            }
+        }
+
+        // パス情報からカテゴリを判定（より高精度）
+        private func determineCategoryFromPath(_ path: [String]) -> String {
+            let pathString = path.joined(separator: "/").lowercased()
+            let currentName = path.last?.lowercased() ?? ""
+
+            // パス全体から階層構造を解析
+            if pathString.contains("arch") || pathString.contains("wall") || pathString.contains("door") {
+                return "Wall"
+            } else if pathString.contains("floor") {
+                return "Floor"
+            } else if pathString.contains("storage") {
+                return "storage"
+            } else if pathString.contains("television") || pathString.contains("tv") {
+                return "television"
+            }
+
+            // 現在の名前から直接判定
+            return determineEntityCategory(name: currentName)
+        }
+
+        // エンティティ名からカテゴリを判定（より堅牢な実装）
+        private func determineEntityCategory(name: String) -> String {
+            let lowercaseName = name.lowercased()
+
+            // まず階層ベースの判定（確実性の高いもの）
+            if lowercaseName.contains("wall") || lowercaseName.contains("door") || lowercaseName.contains("arch") {
+                return "Wall"
+            } else if lowercaseName.contains("floor") {
+                return "Floor"
+            } else if lowercaseName.contains("storage") {
+                return "storage"
+            } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
+                return "television"
+            }
+
+            // 標準的な家具・設備の判定
+            else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
+                return "bathtub"
+            } else if lowercaseName.contains("bed") {
+                return "bed"
+            } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
+                return "chair"
+            } else if lowercaseName.contains("dishwasher") {
+                return "dishwasher"
+            } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
+                return "fireplace"
+            } else if lowercaseName.contains("oven") {
+                return "oven"
+            } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
+                return "refrigerator"
+            } else if lowercaseName.contains("sink") {
+                return "sink"
+            } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
+                return "sofa"
+            } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
+                return "stairs"
+            } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
+                return "stove"
+            } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
+                return "table"
+            } else if lowercaseName.contains("toilet") {
+                return "toilet"
+            } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
+                return "washerDryer"
+            }
+
+            // 特殊なケース: 複雑な名前は親エンティティから推測
+            return inferCategoryFromParentContext(entityName: name)
+        }
+
+        // 親エンティティのコンテキストからカテゴリを推測
+        private func inferCategoryFromParentContext(entityName: String) -> String {
+            // allEntitiesからこのエンティティに関連する情報を探索
+            for entityInfo in allEntities {
+                if entityName.contains(entityInfo.name) || entityInfo.name.contains(entityName) {
+                    if entityInfo.category != "その他" {
+                        return entityInfo.category
+                    }
+                }
+            }
+            return "その他"
+        }
+
+        // より安全なエンティティ可視性制御（Transform scaling を避ける）
+        private func setEntityVisibilitySafe(_ entity: Entity, isVisible: Bool) {
+            let identifier = ObjectIdentifier(entity)
+            entityVisibilityState[identifier] = isVisible
+            
+            // 方法1: OpacityComponentでの制御 (主要な方法)
+            if isVisible {
+                entity.components.remove(OpacityComponent.self)
+            } else {
+                entity.components.set(OpacityComponent(opacity: 0.0))
+            }
+
+            // 方法2: isEnabledでの制御 (補助)
+            entity.isEnabled = isVisible
+
+            print("    -> エンティティ制御: \(entity.name) visible=\(isVisible)")
+
+            // 子エンティティにも適用
+            for child in entity.children {
+                setEntityVisibilitySafe(child, isVisible: isVisible)
+            }
+        }
+
+        private func printEntityHierarchy(_ entity: Entity, level: Int) {
+            let indent = String(repeating: "  ", count: level)
+            let name = entity.name.isEmpty ? "unnamed" : entity.name
+            let hasModel = entity.components.has(ModelComponent.self)
+            let _ = entity.components.has(OpacityComponent.self)
+            let opacityValue = entity.components[OpacityComponent.self]?.opacity ?? 1.0
+
+            print("\(indent)- \(name) (enabled: \(entity.isEnabled), model: \(hasModel), opacity: \(opacityValue))")
+
+            for child in entity.children {
+                printEntityHierarchy(child, level: level + 1)
+            }
+        }
+
+        private func printCompleteEntityHierarchy(_ entity: Entity, level: Int) {
+            let indent = String(repeating: "  ", count: level)
+            let name = entity.name.isEmpty ? "unnamed" : entity.name
+            let hasModel = entity.components.has(ModelComponent.self)
+            let category = determineEntityCategory(name: name)
+
+            print("\(indent)[\(level)] \(name) -> カテゴリ: \(category) (ModelComponent: \(hasModel))")
+
+            for child in entity.children {
+                printCompleteEntityHierarchy(child, level: level + 1)
+            }
         }
     }
 }
@@ -665,4 +931,333 @@ private func collectChildrenStatic(_ node: SCNNode, children: inout [String]) {
             collectChildrenStatic(child, children: &children)
         }
     }
+}
+
+// 静的関数：SceneKitノードを再帰的に処理してRealityKitエンティティに変換
+@MainActor
+private func processSceneKitNodeStatic(_ node: SCNNode,
+                                     anchor: AnchorEntity,
+                                     categoryMap: inout [String: [Entity]],
+                                     grpObjects: [String: [String]],
+                                     level: Int,
+                                     referenceTransform: Transform) async {
+    let nodeName = node.name ?? "unnamed"
+    let indent = String(repeating: "  ", count: level)
+
+    // ジオメトリを持つノードのみRealityKitエンティティに変換
+    if let geometry = node.geometry {
+        print("\(indent)ジオメトリノード発見: \(nodeName)")
+
+        // カテゴリを判定
+        let category = determineCategoryFromSceneKitNodeStatic(node, grpObjects: grpObjects)
+        print("\(indent)  -> カテゴリ: \(category)")
+
+        // RealityKitエンティティを作成
+        if let entity = createRealityKitEntityFromGeometryStatic(geometry, nodeName: nodeName, transform: node.transform, referenceTransform: referenceTransform) {
+            anchor.addChild(entity)
+
+            // カテゴリマップに追加
+            if categoryMap[category] == nil {
+                categoryMap[category] = []
+            }
+            categoryMap[category]?.append(entity)
+            print("\(indent)  -> エンティティ作成完了")
+        } else {
+            print("\(indent)  -> エンティティ作成失敗: \(nodeName)")
+        }
+    }
+
+    // 子ノードを再帰的に処理
+    for childNode in node.childNodes {
+        await processSceneKitNodeStatic(childNode,
+                                anchor: anchor,
+                                categoryMap: &categoryMap,
+                                grpObjects: grpObjects,
+                                level: level + 1,
+                                referenceTransform: referenceTransform)
+    }
+}
+
+// 静的関数：SceneKitのジオメトリからRealityKitエンティティを作成
+@MainActor
+private func createRealityKitEntityFromGeometryStatic(_ geometry: SCNGeometry, nodeName: String, transform: SCNMatrix4, referenceTransform: Transform) -> Entity? {
+    do {
+        print("    -> エンティティ作成開始: \(nodeName)")
+
+        // ModelEntityを作成
+        let entity = Entity()
+        entity.name = nodeName
+
+        // SceneKitのTransformをsimd_float4x4に変換
+        let sceneKitMatrix = simd_float4x4(
+            simd_float4(Float(transform.m11), Float(transform.m12), Float(transform.m13), Float(transform.m14)),
+            simd_float4(Float(transform.m21), Float(transform.m22), Float(transform.m23), Float(transform.m24)),
+            simd_float4(Float(transform.m31), Float(transform.m32), Float(transform.m33), Float(transform.m34)),
+            simd_float4(Float(transform.m41), Float(transform.m42), Float(transform.m43), Float(transform.m44))
+        )
+
+        // リファレンスのスケールを適用
+        var finalTransform = Transform(matrix: sceneKitMatrix)
+        finalTransform.scale = finalTransform.scale * referenceTransform.scale
+
+        // リファレンスの位置オフセットを適用（必要に応じて）
+        // finalTransform.translation += referenceTransform.translation
+
+        entity.transform = finalTransform
+        print("    -> Transform設定完了 - position: \(finalTransform.translation), scale: \(finalTransform.scale)")
+
+        // SceneKitジオメトリをRealityKitのMeshResourceに変換
+        let meshResource = try convertSCNGeometryToMeshResource(geometry)
+        print("    -> SCNGeometry->MeshResource変換完了")
+
+        // マテリアルを作成（SCNGeometryのマテリアルから変換）
+        let materials = convertSCNMaterialsToRealityKitMaterials(geometry.materials)
+        print("    -> マテリアル変換完了")
+
+        let modelComponent = ModelComponent(mesh: meshResource, materials: materials)
+        entity.components.set(modelComponent)
+
+        print("    -> ModelComponent設定完了: \(nodeName)")
+        return entity
+
+    } catch {
+        print("    -> エラー: エンティティ作成失敗 \(nodeName) - \(error.localizedDescription)")
+        // フォールバックとして簡単な形状を作成
+        return createFallbackEntity(nodeName: nodeName, transform: transform, referenceTransform: referenceTransform)
+    }
+}
+
+// SceneKitジオメトリをRealityKitのMeshResourceに変換
+@MainActor
+private func convertSCNGeometryToMeshResource(_ geometry: SCNGeometry) throws -> MeshResource {
+    // SCNGeometryの頂点データとインデックスデータを取得
+    let geometrySource = geometry.sources(for: .vertex).first
+    let geometryElement = geometry.elements.first
+
+    guard let source = geometrySource,
+          let element = geometryElement else {
+        throw NSError(domain: "GeometryConversion", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid geometry data"])
+    }
+
+    let data = source.data
+
+    // 頂点データの解析
+    let stride = source.bytesPerComponent * source.componentsPerVector
+    let vertexCount = source.vectorCount
+
+    var positions: [SIMD3<Float>] = []
+
+    // Float32データとして読み込み
+    data.withUnsafeBytes { rawBuffer in
+        for i in 0..<vertexCount {
+            let offset = i * stride
+            let x = rawBuffer.load(fromByteOffset: offset, as: Float.self)
+            let y = rawBuffer.load(fromByteOffset: offset + 4, as: Float.self)
+            let z = rawBuffer.load(fromByteOffset: offset + 8, as: Float.self)
+            positions.append(SIMD3<Float>(x, y, z))
+        }
+    }
+
+    // インデックスデータの解析
+    var indices: [UInt32] = []
+    let indexData = element.data
+    let indexCount = element.primitiveCount * 3 // 三角形前提
+    indexData.withUnsafeBytes { rawBuffer in
+        for i in 0..<indexCount {
+            let index = rawBuffer.load(fromByteOffset: i * MemoryLayout<UInt32>.size, as: UInt32.self)
+            indices.append(index)
+        }
+    }
+
+    // MeshResourceを作成
+    var descriptor = MeshDescriptor()
+    descriptor.positions = MeshBuffer(positions)
+    descriptor.primitives = .triangles(indices)
+
+    return try MeshResource.generate(from: [descriptor])
+}
+
+// SCNMaterialをRealityKitマテリアルに変換
+@MainActor
+private func convertSCNMaterialsToRealityKitMaterials(_ scnMaterials: [SCNMaterial]) -> [RealityKit.Material] {
+    if scnMaterials.isEmpty {
+        // デフォルトマテリアル
+        var material = SimpleMaterial()
+        material.color = .init(tint: UIColor.systemBlue)
+        material.roughness = .init(floatLiteral: 0.3)
+        return [material]
+    }
+
+    return scnMaterials.map { scnMaterial in
+        var material = SimpleMaterial()
+
+        // Diffuseカラーを変換
+        if let diffuse = scnMaterial.diffuse.contents as? UIColor {
+            material.color = .init(tint: diffuse)
+        } else {
+            material.color = .init(tint: UIColor.systemBlue)
+        }
+
+        // その他のプロパティも変換可能
+        // material.roughness = ...
+        // material.metallic = ...
+
+        return material
+    }
+}
+
+// フォールバック用のシンプルなエンティティを作成
+@MainActor
+private func createFallbackEntity(nodeName: String, transform: SCNMatrix4, referenceTransform: Transform) -> Entity? {
+    do {
+        let entity = Entity()
+        entity.name = nodeName
+
+        let sceneKitMatrix = simd_float4x4(
+            simd_float4(Float(transform.m11), Float(transform.m12), Float(transform.m13), Float(transform.m14)),
+            simd_float4(Float(transform.m21), Float(transform.m22), Float(transform.m23), Float(transform.m24)),
+            simd_float4(Float(transform.m31), Float(transform.m32), Float(transform.m33), Float(transform.m34)),
+            simd_float4(Float(transform.m41), Float(transform.m42), Float(transform.m43), Float(transform.m44))
+        )
+        var finalTransform = Transform(matrix: sceneKitMatrix)
+        finalTransform.scale = finalTransform.scale * referenceTransform.scale
+        entity.transform = finalTransform
+
+        var material = SimpleMaterial()
+        material.color = .init(tint: UIColor.systemRed) // フォールバックは赤色
+
+        let meshResource = try MeshResource.generateBox(size: [0.1, 0.1, 0.1])
+        let modelComponent = ModelComponent(mesh: meshResource, materials: [material])
+        entity.components.set(modelComponent)
+
+        return entity
+    } catch {
+        return nil
+    }
+}
+
+// 静的関数：SceneKitノードからカテゴリを判定
+private func determineCategoryFromSceneKitNodeStatic(_ node: SCNNode, grpObjects: [String: [String]]) -> String {
+    let nodeName = node.name ?? "unnamed"
+
+    // 直接的な名前判定
+    let directCategory = categorizeDirectChildStatic(name: nodeName)
+    if directCategory != "その他" {
+        return directCategory
+    }
+
+    // 親ノードから推測
+    var currentNode: SCNNode? = node
+    while let parentNode = currentNode?.parent {
+        if let parentName = parentNode.name {
+            let parentCategory = categorizeGrpObjectByHierarchyStatic(name: parentName)
+            if parentCategory != "その他" {
+                return parentCategory
+            }
+        }
+        currentNode = parentNode
+    }
+
+    return "その他"
+}
+
+// 静的関数：分類ロジック
+private func categorizeDirectChildStatic(name: String) -> String {
+    let lowercaseName = name.lowercased()
+
+    // 子要素の名前から直接判定
+    if lowercaseName.contains("television") || lowercaseName == "television0" {
+        return "television"
+    } else if lowercaseName.contains("storage") || lowercaseName == "storage0" || lowercaseName == "storage1" {
+        return "storage"
+    } else if lowercaseName.contains("wall") || lowercaseName == "wall0" || lowercaseName == "wall1" || lowercaseName == "wall2" {
+        return "Wall"
+    } else if lowercaseName.contains("floor") || lowercaseName == "floor0" {
+        return "Floor"
+    } else if lowercaseName.contains("door") || lowercaseName == "door0" {
+        return "Wall"  // ドアは壁カテゴリに含める
+    } else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
+        return "bathtub"
+    } else if lowercaseName.contains("bed") {
+        return "bed"
+    } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
+        return "chair"
+    } else if lowercaseName.contains("dishwasher") {
+        return "dishwasher"
+    } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
+        return "fireplace"
+    } else if lowercaseName.contains("oven") {
+        return "oven"
+    } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
+        return "refrigerator"
+    } else if lowercaseName.contains("sink") {
+        return "sink"
+    } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
+        return "sofa"
+    } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
+        return "stairs"
+    } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
+        return "stove"
+    } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
+        return "table"
+    } else if lowercaseName.contains("toilet") {
+        return "toilet"
+    } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
+        return "washerDryer"
+    }
+
+    // デフォルトは「その他」
+    return "その他"
+}
+
+// 静的関数：階層に基づく分類
+private func categorizeGrpObjectByHierarchyStatic(name: String) -> String {
+    let lowercaseName = name.lowercased()
+
+    // 階層構造に基づいた分類
+    if lowercaseName.contains("arch") {
+        return "Wall"  // Arch_grpの配下は全てWall
+    } else if lowercaseName.contains("floor") {
+        return "Floor"  // Floor_grpの配下は全てFloor
+    } else if lowercaseName.contains("object") {
+        return "その他"  // Object_grpは放置（その他扱い）
+    }
+
+    // Object_grp配下の具体的なオブジェクト分類
+    if lowercaseName.contains("storage") {
+        return "storage"
+    } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
+        return "television"
+    } else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
+        return "bathtub"
+    } else if lowercaseName.contains("bed") {
+        return "bed"
+    } else if lowercaseName.contains("chair") || lowercaseName.contains("seat") {
+        return "chair"
+    } else if lowercaseName.contains("dishwasher") {
+        return "dishwasher"
+    } else if lowercaseName.contains("fireplace") || lowercaseName.contains("fire") {
+        return "fireplace"
+    } else if lowercaseName.contains("oven") {
+        return "oven"
+    } else if lowercaseName.contains("refrigerator") || lowercaseName.contains("fridge") || lowercaseName.contains("refrig") {
+        return "refrigerator"
+    } else if lowercaseName.contains("sink") {
+        return "sink"
+    } else if lowercaseName.contains("sofa") || lowercaseName.contains("couch") {
+        return "sofa"
+    } else if lowercaseName.contains("stairs") || lowercaseName.contains("stair") || lowercaseName.contains("step") {
+        return "stairs"
+    } else if lowercaseName.contains("stove") || lowercaseName.contains("cooktop") {
+        return "stove"
+    } else if lowercaseName.contains("table") || lowercaseName.contains("desk") {
+        return "table"
+    } else if lowercaseName.contains("toilet") {
+        return "toilet"
+    } else if lowercaseName.contains("washer") || lowercaseName.contains("dryer") || lowercaseName.contains("laundry") {
+        return "washerDryer"
+    }
+
+    // デフォルトは「その他」
+    return "その他"
 }

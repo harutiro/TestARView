@@ -11,13 +11,17 @@ import ARKit
 
 struct RoomPlanARView: View {
     @State private var selectedCategories: Set<String> = [
-        "壁", "床", "天井", "ドア", "窓", "開口部", "収納", "階段", "家具", "構造", "その他"
+        "Wall", "Floor", "storage", "television", "bathtub", "bed", "chair",
+        "dishwasher", "fireplace", "oven", "refrigerator", "sink", "sofa",
+        "stairs", "stove", "table", "toilet", "washerDryer", "その他"
     ]
     @State private var entityHierarchy: [EntityInfo] = []
     @State private var showEntityList = false
 
     private let allCategories = [
-        "壁", "床", "天井", "ドア", "窓", "開口部", "収納", "階段", "家具", "構造", "その他"
+        "Wall", "Floor", "storage", "television", "bathtub", "bed", "chair",
+        "dishwasher", "fireplace", "oven", "refrigerator", "sink", "sofa",
+        "stairs", "stove", "table", "toilet", "washerDryer", "その他"
     ]
 
     var body: some View {
@@ -91,17 +95,53 @@ struct CategoryToggle: View {
 
     var iconName: String {
         switch category {
-        case "壁": return "rectangle.split.3x1"
-        case "床": return "square.grid.3x3"
-        case "天井": return "rectangle"
-        case "ドア": return "door.left.hand.closed"
-        case "窓": return "window.vertical.closed"
-        case "開口部": return "square.split.2x1"
-        case "収納": return "cabinet"
-        case "階段": return "stairs"
-        case "家具": return "chair"
-        case "構造": return "building.2"
+        case "Wall": return "rectangle.split.3x1"
+        case "Floor": return "square.grid.3x3"
+        case "storage": return "cabinet"
+        case "television": return "tv"
+        case "bathtub": return "bathtub"
+        case "bed": return "bed.double"
+        case "chair": return "chair"
+        case "dishwasher": return "dishwasher"
+        case "fireplace": return "flame"
+        case "oven": return "oven"
+        case "refrigerator": return "refrigerator"
+        case "sink": return "sink"
+        case "sofa": return "sofa"
+        case "stairs": return "stairs"
+        case "stove": return "stove"
+        case "table": return "table"
+        case "toilet": return "toilet"
+        case "washerDryer": return "washer"
+        case "Root": return "folder"
+        case "その他": return "cube"
         default: return "cube"
+        }
+    }
+
+    var displayName: String {
+        switch category {
+        case "Wall": return "壁"
+        case "Floor": return "床"
+        case "storage": return "収納"
+        case "television": return "テレビ"
+        case "bathtub": return "浴槽"
+        case "bed": return "ベッド"
+        case "chair": return "椅子"
+        case "dishwasher": return "食洗機"
+        case "fireplace": return "暖炉"
+        case "oven": return "オーブン"
+        case "refrigerator": return "冷蔵庫"
+        case "sink": return "シンク"
+        case "sofa": return "ソファ"
+        case "stairs": return "階段"
+        case "stove": return "コンロ"
+        case "table": return "テーブル"
+        case "toilet": return "トイレ"
+        case "washerDryer": return "洗濯機"
+        case "Root": return "ルート"
+        case "その他": return "その他"
+        default: return category
         }
     }
 
@@ -110,7 +150,7 @@ struct CategoryToggle: View {
             VStack(spacing: 4) {
                 Image(systemName: iconName)
                     .font(.title2)
-                Text(category)
+                Text(displayName)
                     .font(.caption)
             }
             .frame(width: 70, height: 70)

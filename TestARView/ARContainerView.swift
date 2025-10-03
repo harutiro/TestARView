@@ -928,8 +928,8 @@ private func processSceneKitNodeStatic(_ node: SCNNode,
         let category = determineCategoryFromSceneKitNodeStatic(node, grpObjects: grpObjects)
         print("\(indent)  -> カテゴリ: \(category)")
 
-        // RealityKitエンティティを作成
-        if let entity = createRealityKitEntityFromGeometryStatic(geometry, nodeName: nodeName, transform: node.transform, referenceTransform: referenceTransform) {
+        // RealityKitエンティティを作成（ワールド座標系を使用）
+        if let entity = createRealityKitEntityFromGeometryStatic(geometry, nodeName: nodeName, transform: node.worldTransform, referenceTransform: referenceTransform) {
             anchor.addChild(entity)
 
             // カテゴリマップに追加

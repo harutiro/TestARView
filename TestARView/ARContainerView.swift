@@ -746,15 +746,17 @@ struct ARContainerView: UIViewRepresentable {
             let pathString = path.joined(separator: "/").lowercased()
             let currentName = path.last?.lowercased() ?? ""
 
-            // パス全体から階層構造を解析
-            if pathString.contains("arch") || pathString.contains("wall") || pathString.contains("door") {
-                return .wall
-            } else if pathString.contains("floor") {
-                return .floor
-            } else if pathString.contains("storage") {
+            // パス全体から階層構造を解析（より具体的なものを先に判定）
+            if pathString.contains("storage") {
                 return .storage
             } else if pathString.contains("television") || pathString.contains("tv") {
                 return .television
+            } else if pathString.contains("arch") || pathString.contains("door") {
+                return .wall
+            } else if pathString.contains("wall") && !pathString.contains("storage") {
+                return .wall
+            } else if pathString.contains("floor") {
+                return .floor
             }
 
             // 現在の名前から直接判定
@@ -765,15 +767,17 @@ struct ARContainerView: UIViewRepresentable {
         private func determineEntityCategory(name: String) -> EntityCategory {
             let lowercaseName = name.lowercased()
 
-            // まず階層ベースの判定（確実性の高いもの）
-            if lowercaseName.contains("wall") || lowercaseName.contains("door") || lowercaseName.contains("arch") {
-                return .wall
-            } else if lowercaseName.contains("floor") {
-                return .floor
-            } else if lowercaseName.contains("storage") {
+            // より具体的なカテゴリを先に判定（確実性の高いもの）
+            if lowercaseName.contains("storage") {
                 return .storage
             } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
                 return .television
+            } else if lowercaseName.contains("door") || lowercaseName.contains("arch") {
+                return .wall
+            } else if lowercaseName.contains("wall") && !lowercaseName.contains("storage") {
+                return .wall
+            } else if lowercaseName.contains("floor") {
+                return .floor
             }
 
             // 標準的な家具・設備の判定
@@ -1123,15 +1127,30 @@ private func determineCategoryFromSceneKitNodeStatic(_ node: SCNNode, grpObjects
     }
 
     // 親ノードから推測
+    // まず全ての親階層を収集してStorage0/Storage1があるかチェック
+    var allParentNames: [String] = []
     var currentNode: SCNNode? = node
     while let parentNode = currentNode?.parent {
         if let parentName = parentNode.name {
-            let parentCategory = categorizeGrpObjectByHierarchyStatic(name: parentName)
-            if parentCategory != .other {
-                return parentCategory
-            }
+            allParentNames.append(parentName)
         }
         currentNode = parentNode
+    }
+
+    // Storage0/Storage1が親階層にあればstorageカテゴリ
+    for parentName in allParentNames {
+        let lowercaseName = parentName.lowercased()
+        if lowercaseName == "storage0" || lowercaseName == "storage1" || lowercaseName.contains("storage_grp") {
+            return .storage
+        }
+    }
+
+    // 通常の親ノード判定（最も近い親から順に）
+    for parentName in allParentNames {
+        let parentCategory = categorizeGrpObjectByHierarchyStatic(name: parentName)
+        if parentCategory != .other {
+            return parentCategory
+        }
     }
 
     return .other
@@ -1141,17 +1160,19 @@ private func determineCategoryFromSceneKitNodeStatic(_ node: SCNNode, grpObjects
 private func categorizeDirectChildStatic(name: String) -> EntityCategory {
     let lowercaseName = name.lowercased()
 
-    // 子要素の名前から直接判定
-    if lowercaseName.contains("television") || lowercaseName == "television0" {
-        return .television
-    } else if lowercaseName.contains("storage") || lowercaseName == "storage0" || lowercaseName == "storage1" {
+    // 子要素の名前から直接判定（より具体的なものを先に）
+    if lowercaseName.contains("storage") || lowercaseName == "storage0" || lowercaseName == "storage1" {
         return .storage
-    } else if lowercaseName.contains("wall") || lowercaseName == "wall0" || lowercaseName == "wall1" || lowercaseName == "wall2" {
+    } else if lowercaseName.contains("television") || lowercaseName == "television0" {
+        return .television
+    } else if lowercaseName.contains("door") || lowercaseName == "door0" {
+        return .wall  // ドアは壁カテゴリに含める
+    } else if lowercaseName.contains("wall") && !lowercaseName.contains("storage") {
+        return .wall
+    } else if lowercaseName == "wall0" || lowercaseName == "wall1" || lowercaseName == "wall2" {
         return .wall
     } else if lowercaseName.contains("floor") || lowercaseName == "floor0" {
         return .floor
-    } else if lowercaseName.contains("door") || lowercaseName == "door0" {
-        return .wall  // ドアは壁カテゴリに含める
     } else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
         return .bathtub
     } else if lowercaseName.contains("bed") {
@@ -1190,6 +1211,13 @@ private func categorizeDirectChildStatic(name: String) -> EntityCategory {
 private func categorizeGrpObjectByHierarchyStatic(name: String) -> EntityCategory {
     let lowercaseName = name.lowercased()
 
+    // より具体的なカテゴリを先に判定
+    if lowercaseName.contains("storage") {
+        return .storage
+    } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
+        return .television
+    }
+
     // 階層構造に基づいた分類
     if lowercaseName.contains("arch") {
         return .wall  // Arch_grpの配下は全てWall
@@ -1199,12 +1227,8 @@ private func categorizeGrpObjectByHierarchyStatic(name: String) -> EntityCategor
         return .other  // Object_grpは放置（その他扱い）
     }
 
-    // Object_grp配下の具体的なオブジェクト分類
-    if lowercaseName.contains("storage") {
-        return .storage
-    } else if lowercaseName.contains("television") || lowercaseName.contains("tv") {
-        return .television
-    } else if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
+    // Object_grp配下の具体的なオブジェクト分類（上記で判定済み）
+    if lowercaseName.contains("bathtub") || lowercaseName.contains("bath") {
         return .bathtub
     } else if lowercaseName.contains("bed") {
         return .bed
